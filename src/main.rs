@@ -5,9 +5,11 @@ use std::path::PathBuf;
 use ultraviolet::Vec3;
 
 mod random;
+mod trace;
 use random::UniformInSphere;
+use trace::{Ray, Probe, Sphere, Scene};
 
-type Color = Vec3;
+pub(crate) type Color = Vec3;
 
 #[derive(Debug, Parser)]
 struct Args {
@@ -38,101 +40,31 @@ impl Framebuffer {
     }
 }
 
-#[derive(Debug)]
-struct Ray {
-    pub origin: Vec3,
-    pub dir: Vec3,
+struct Camera {
+    origin: Vec3,
+    horiz: Vec3,
+    vert: Vec3,
+    lower_left: Vec3,
 }
 
-impl Ray {
-    pub fn new(origin: Vec3, dir: Vec3) -> Self {
-        Self { origin, dir }
-    }
+impl Camera {
+    pub fn new(aspect: f32) -> Self {
+        let viewport_height = 2.;
+        let viewport_width = aspect * viewport_height;
+        let focal_length = 1.0;
 
-    pub fn at(&self, t: f32) -> Vec3 {
-        self.origin + self.dir * t
-    }
-}
+        let origin: Vec3 = (0., 0., 0.).into();
+        let horiz: Vec3 = (viewport_width, 0., 0.).into();
+        let vert: Vec3 = (0., viewport_height, 0.).into();
+        let lower_left = origin - horiz / 2. - vert / 2. - (0., 0., focal_length).into();
 
-
-#[derive(Debug, Clone, Copy)]
-struct Hit {
-    pub p: Vec3,
-    pub t: f32,
-    pub normal: Vec3,
-}
-
-impl Hit {
-    pub fn front_facing(&self, ray: &Ray) -> bool {
-        self.normal.dot(ray.dir) > 0.
-    }
-}
-
-trait Probe {
-    fn probe(&self, ray: &Ray, t_min: f32, t_max: f32) -> Option<Hit>;
-}
-
-struct Sphere {
-    pub center: Vec3,
-    pub radius: f32,
-}
-
-impl Probe for Sphere {
-    fn probe(&self, ray: &Ray, t_min: f32, t_max: f32) -> Option<Hit> {
-        let sep = ray.origin - self.center;
-        let a = ray.dir.mag_sq();
-        let hb = sep.dot(ray.dir);
-        let c = sep.dot(sep) - self.radius * self.radius;
-        let discrim = hb*hb - a*c;
-
-        if discrim < 0. {
-            return None;
-        }
-        let sqd = discrim.sqrt();
-
-        let mut root = (-hb-sqd)/a;
-        if root < t_min || t_max < root {
-            root = (-hb+sqd)/a;
-            if root < t_min || t_max < root {
-                return None;
-            }
-        }
-
-        let p = ray.at(root);
-        Some(Hit {
-            t: root,
-            p,
-            normal: (p - self.center) / self.radius,
-        })
-    }
-}
-
-struct Scene {
-    objects: Vec<Box<dyn Probe>>,
-}
-impl Scene {
-    pub fn new() -> Self {
         Self {
-            objects: vec![]
+            origin, horiz, vert, lower_left
         }
     }
 
-    pub fn add(&mut self, object: Box<dyn Probe>) {
-        self.objects.push(object);
-    }
-
-    pub fn probe(&self, ray: &Ray, t_min: f32, t_max: f32) -> Option<Hit> {
-        let mut closest = t_max;
-        let mut current_hit = None;
-
-        for object in &self.objects {
-            if let Some(hit) = object.probe(ray, t_min, closest) {
-                current_hit = Some(hit);
-                closest = hit.t;
-            }
-        }
-
-        current_hit
+    pub fn ray(&self, u: f32, v: f32) -> Ray {
+        Ray::new(self.origin, self.lower_left + u * self.horiz + v * self.vert - self.origin)
     }
 }
 
@@ -154,18 +86,18 @@ fn main() -> Result<()> {
     let fb_height = (fb_width as f32 / aspect) as usize;
     let mut fb = Framebuffer::new(fb_width, fb_height);
 
+    let camera = Camera::new(aspect);
+
     // -- camera
-    let viewport_height = 2.;
-    let viewport_width = aspect * viewport_height;
-    let focal_length = 1.0;
-
-    let origin: Vec3 = (0., 0., 0.).into();
-    let horiz: Vec3 = (viewport_width, 0., 0.).into();
-    let vert: Vec3 = (0., viewport_height, 0.).into();
-    let lower_left = origin - horiz / 2. - vert / 2. - (0., 0., focal_length).into();
-
     let mut scene = Scene::new();
-    scene.add(Box::new(Sphere { center: (0., 0., -1.).into(), radius: 0.5}));
+    scene.add(Box::new(Sphere {
+        center: (0., 0., -1.).into(),
+        radius: 0.5,
+    }));
+    scene.add(Box::new(Sphere {
+        center: (0., -100.5, -1.).into(),
+        radius: 100.,
+    }));
 
     // -- render
     for i in 0..fb.height {
@@ -174,7 +106,7 @@ fn main() -> Result<()> {
             let u = j as f32 / (fb_width - 1) as f32;
             let v = 1. - i as f32 / (fb_height - 1) as f32;
 
-            let ray = Ray::new(origin, lower_left + u * horiz + v * vert - origin);
+            let ray = camera.ray(u, v);
             fb.write(i, j, color_ray(&ray, &scene));
         }
     }
