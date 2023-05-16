@@ -1,0 +1,12 @@
+[package]
+name = "sunbeam"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1.0.71"
+clap = { version = "4.2.7", features = ["derive"] }
+image = "0.24.6"
+rand = "0.8.5"
+rand_distr = "0.4.3"
+ultraviolet = "0.9.1"
