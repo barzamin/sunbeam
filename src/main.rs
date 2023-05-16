@@ -95,23 +95,13 @@ fn color_ray(ray: &Ray, scene: &Scene, depth: usize) -> Color {
     (1. - t) * Color::one() + t * Color::new(0.5, 0.7, 1.0)
 }
 
-fn main() -> Result<()> {
-    let args = Args::parse();
-
-    // -- framebuffer
-    let aspect = 16. / 9.;
-    let fb_width = 400;
-    let fb_height = (fb_width as f32 / aspect) as usize;
-    let mut fb = Framebuffer::new(fb_width, fb_height);
-
-    let camera = Camera::new(aspect);
-
-    // -- camera
+fn construct_test_scene() -> Scene {
     let mut scene = Scene::new();
+
     let material1 = Arc::new(Lambertian::new((0.7, 0.3, 0.3).into()));
     let material2 = Arc::new(Lambertian::new((0.8, 0.8, 0.0).into()));
-    let material3 = Arc::new(Metallic::new((0.8, 0.8, 0.8).into()));
-    let material4 = Arc::new(Metallic::new((0.8, 0.6, 0.2).into()));
+    let material3 = Arc::new(Metallic::new((0.8, 0.8, 0.8).into(), 0.3));
+    let material4 = Arc::new(Metallic::new((0.8, 0.6, 0.2).into(), 1.0));
     scene.add(
         Box::new(Sphere {
             center: (0., 0., -1.).into(),
@@ -140,6 +130,23 @@ fn main() -> Result<()> {
         }),
         material4.clone(),
     );
+
+    scene
+}
+
+fn main() -> Result<()> {
+    let args = Args::parse();
+
+    // -- framebuffer
+    let aspect = 16. / 9.;
+    let fb_width = 400;
+    let fb_height = (fb_width as f32 / aspect) as usize;
+    let mut fb = Framebuffer::new(fb_width, fb_height);
+
+    let camera = Camera::new(aspect);
+
+    // -- camera
+    let scene = construct_test_scene();
 
     let mut rng = rand::thread_rng();
     let supersamples = 16;
