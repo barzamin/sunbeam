@@ -1,12 +1,14 @@
 use anyhow::Result;
 use clap::Parser;
 use image::ColorType;
+use indicatif::ProgressBar;
+use rand::Rng;
 use std::path::PathBuf;
 use ultraviolet::Vec3;
 
 mod random;
 mod trace;
-use random::UniformInSphere;
+use random::{UniformInSphere, UniformOnSphere};
 use trace::{Ray, Probe, Sphere, Scene};
 
 pub(crate) type Color = Vec3;
@@ -68,9 +70,16 @@ impl Camera {
     }
 }
 
-fn color_ray(ray: &Ray, scene: &Scene) -> Color {
-    if let Some(hit) = scene.probe(ray, 0., f32::INFINITY) {
-        return 0.5 * (hit.normal + Vec3::one());
+fn color_ray(ray: &Ray, scene: &Scene, depth: usize) -> Color {
+    if depth <= 0 {
+        return Color::zero();
+    }
+
+    if let Some(hit) = scene.probe(ray, 0.001, f32::INFINITY) {
+        let S = rand::thread_rng().sample(UniformOnSphere);
+        let target = hit.p + hit.normal + S;
+        return 0.5 * color_ray(&Ray::new(hit.p, target - hit.p), scene, depth - 1);
+        // return 0.5 * (hit.normal + Vec3::one());
     }
 
     let t = 0.5 * (ray.dir.normalized().y + 1.);
@@ -99,16 +108,28 @@ fn main() -> Result<()> {
         radius: 100.,
     }));
 
+    let mut rng = rand::thread_rng();
+    let supersamples = 16;
+
     // -- render
+    let pb = ProgressBar::new(fb.height as u64);
     for i in 0..fb.height {
         // render scanline
         for j in 0..fb.width {
-            let u = j as f32 / (fb_width - 1) as f32;
-            let v = 1. - i as f32 / (fb_height - 1) as f32;
+            let mut color = Color::zero();
+            for _ in 0..supersamples {
+                let u = (j as f32 + rng.gen::<f32>()) / (fb_width - 1) as f32;
+                let v = 1. - (i as f32 + rng.gen::<f32>()) / (fb_height - 1) as f32;
 
-            let ray = camera.ray(u, v);
-            fb.write(i, j, color_ray(&ray, &scene));
+                let ray = camera.ray(u, v);
+                color += color_ray(&ray, &scene, 50);
+            }
+            color /= supersamples as f32;
+            color.apply(|x| x.powf(1./2.2));
+            fb.write(i, j, color);
         }
+
+        pb.inc(1);
     }
 
     image::save_buffer(
