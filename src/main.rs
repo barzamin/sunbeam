@@ -2,14 +2,16 @@ use anyhow::Result;
 use clap::Parser;
 use image::ColorType;
 use indicatif::ProgressBar;
+use material::{Lambertian, ScatteringResult, Metallic};
 use rand::Rng;
-use std::path::PathBuf;
+use std::{path::PathBuf, sync::Arc};
 use ultraviolet::Vec3;
 
+mod material;
 mod random;
 mod trace;
 use random::{UniformInSphere, UniformOnSphere};
-use trace::{Ray, Probe, Sphere, Scene};
+use trace::{Probe, Ray, Scene, Sphere};
 
 pub(crate) type Color = Vec3;
 
@@ -61,12 +63,18 @@ impl Camera {
         let lower_left = origin - horiz / 2. - vert / 2. - (0., 0., focal_length).into();
 
         Self {
-            origin, horiz, vert, lower_left
+            origin,
+            horiz,
+            vert,
+            lower_left,
         }
     }
 
     pub fn ray(&self, u: f32, v: f32) -> Ray {
-        Ray::new(self.origin, self.lower_left + u * self.horiz + v * self.vert - self.origin)
+        Ray::new(
+            self.origin,
+            self.lower_left + u * self.horiz + v * self.vert - self.origin,
+        )
     }
 }
 
@@ -75,11 +83,12 @@ fn color_ray(ray: &Ray, scene: &Scene, depth: usize) -> Color {
         return Color::zero();
     }
 
-    if let Some(hit) = scene.probe(ray, 0.001, f32::INFINITY) {
-        let S = rand::thread_rng().sample(UniformOnSphere);
-        let target = hit.p + hit.normal + S;
-        return 0.5 * color_ray(&Ray::new(hit.p, target - hit.p), scene, depth - 1);
-        // return 0.5 * (hit.normal + Vec3::one());
+    if let Some((hit, material)) = scene.probe(ray, 0.001, f32::INFINITY) {
+        if let ScatteringResult::Scattered { ray, attenuation } = material.scatter(ray, &hit) {
+            return attenuation * color_ray(&ray, scene, depth-1);
+        }
+
+        return Color::zero();
     }
 
     let t = 0.5 * (ray.dir.normalized().y + 1.);
@@ -99,14 +108,38 @@ fn main() -> Result<()> {
 
     // -- camera
     let mut scene = Scene::new();
-    scene.add(Box::new(Sphere {
-        center: (0., 0., -1.).into(),
-        radius: 0.5,
-    }));
-    scene.add(Box::new(Sphere {
-        center: (0., -100.5, -1.).into(),
-        radius: 100.,
-    }));
+    let material1 = Arc::new(Lambertian::new((0.7, 0.3, 0.3).into()));
+    let material2 = Arc::new(Lambertian::new((0.8, 0.8, 0.0).into()));
+    let material3 = Arc::new(Metallic::new((0.8, 0.8, 0.8).into()));
+    let material4 = Arc::new(Metallic::new((0.8, 0.6, 0.2).into()));
+    scene.add(
+        Box::new(Sphere {
+            center: (0., 0., -1.).into(),
+            radius: 0.5,
+        }),
+        material1.clone(),
+    );
+    scene.add(
+        Box::new(Sphere {
+            center: (0., -100.5, -1.).into(),
+            radius: 100.,
+        }),
+        material2.clone(),
+    );
+    scene.add(
+        Box::new(Sphere {
+            center: (-1., 0., -1.).into(),
+            radius: 0.5,
+        }),
+        material3.clone(),
+    );
+    scene.add(
+        Box::new(Sphere {
+            center: (1., 0., -1.).into(),
+            radius: 0.5,
+        }),
+        material4.clone(),
+    );
 
     let mut rng = rand::thread_rng();
     let supersamples = 16;
@@ -122,10 +155,10 @@ fn main() -> Result<()> {
                 let v = 1. - (i as f32 + rng.gen::<f32>()) / (fb_height - 1) as f32;
 
                 let ray = camera.ray(u, v);
-                color += color_ray(&ray, &scene, 50);
+                color += color_ray(&ray, &scene, 40);
             }
             color /= supersamples as f32;
-            color.apply(|x| x.powf(1./2.2));
+            color.apply(|x| x.powf(1. / 2.2));
             fb.write(i, j, color);
         }
 

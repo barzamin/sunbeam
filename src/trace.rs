@@ -1,5 +1,7 @@
+use std::sync::Arc;
+
+use crate::{material::Material, Color};
 use ultraviolet::Vec3;
-use crate::Color;
 
 #[derive(Debug)]
 pub struct Ray {
@@ -71,24 +73,29 @@ impl Probe for Sphere {
 
 pub struct Scene {
     objects: Vec<Box<dyn Probe>>,
+    materials: Vec<Arc<dyn Material>>,
 }
 
 impl Scene {
     pub fn new() -> Self {
-        Self { objects: vec![] }
+        Self {
+            objects: vec![],
+            materials: vec![],
+        }
     }
 
-    pub fn add(&mut self, object: Box<dyn Probe>) {
+    pub fn add(&mut self, object: Box<dyn Probe>, material: Arc<dyn Material>) {
         self.objects.push(object);
+        self.materials.push(material);
     }
 
-    pub fn probe(&self, ray: &Ray, t_min: f32, t_max: f32) -> Option<Hit> {
+    pub fn probe(&self, ray: &Ray, t_min: f32, t_max: f32) -> Option<(Hit, &dyn Material)> {
         let mut closest = t_max;
         let mut current_hit = None;
 
-        for object in &self.objects {
+        for (object, material) in self.objects.iter().zip(&self.materials) {
             if let Some(hit) = object.probe(ray, t_min, closest) {
-                current_hit = Some(hit);
+                current_hit = Some((hit, material.as_ref()));
                 closest = hit.t;
             }
         }
