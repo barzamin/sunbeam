@@ -2,7 +2,7 @@ use anyhow::Result;
 use clap::Parser;
 use image::ColorType;
 use indicatif::ProgressBar;
-use material::{Lambertian, ScatteringResult, Metallic};
+use material::{Lambertian, ScatteringResult, Metallic, Dielectric};
 use rand::Rng;
 use std::{path::PathBuf, sync::Arc};
 use ultraviolet::Vec3;
@@ -78,29 +78,37 @@ impl Camera {
     }
 }
 
-fn color_ray(ray: &Ray, scene: &Scene, depth: usize) -> Color {
+fn color_ray(incoming_ray: &Ray, scene: &Scene, depth: usize, log: bool) -> Color {
     if depth <= 0 {
         return Color::zero();
     }
 
-    if let Some((hit, material)) = scene.probe(ray, 0.001, f32::INFINITY) {
-        if let ScatteringResult::Scattered { ray, attenuation } = material.scatter(ray, &hit) {
-            return attenuation * color_ray(&ray, scene, depth-1);
+    if let Some((hit, material)) = scene.probe(incoming_ray, 0.001, f32::INFINITY) {
+        if log {
+            println!("hit {:?} on mat {:?} ({}) from incoming {:?}", hit, material, if hit.front(incoming_ray) { "outside" } else { "inside" }, incoming_ray);
+        }
+        if let ScatteringResult::Scattered { ray, attenuation } = material.scatter(incoming_ray, &hit) {
+            if log {
+                println!("  -> scattered to {:?} with atten {:?}", ray, attenuation);
+            }
+            return attenuation * color_ray(&ray, scene, depth-1, log);
         }
 
         return Color::zero();
     }
 
-    let t = 0.5 * (ray.dir.normalized().y + 1.);
+    let t = 0.5 * (incoming_ray.dir.normalized().y + 1.);
     (1. - t) * Color::one() + t * Color::new(0.5, 0.7, 1.0)
 }
 
 fn construct_test_scene() -> Scene {
     let mut scene = Scene::new();
 
-    let material1 = Arc::new(Lambertian::new((0.7, 0.3, 0.3).into()));
+    // let material1 = Arc::new(Lambertian::new((0.7, 0.3, 0.3).into()));
+    let material1 = Arc::new(Dielectric::new(1.5));
     let material2 = Arc::new(Lambertian::new((0.8, 0.8, 0.0).into()));
-    let material3 = Arc::new(Metallic::new((0.8, 0.8, 0.8).into(), 0.3));
+    // let material3 = Arc::new(Metallic::new((0.8, 0.8, 0.8).into(), 0.3));
+    let material3 = Arc::new(Dielectric::new(1.5));
     let material4 = Arc::new(Metallic::new((0.8, 0.6, 0.2).into(), 1.0));
     scene.add(
         Box::new(Sphere {
@@ -162,14 +170,12 @@ fn main() -> Result<()> {
                 let v = 1. - (i as f32 + rng.gen::<f32>()) / (fb_height - 1) as f32;
 
                 let ray = camera.ray(u, v);
-                color += color_ray(&ray, &scene, 40);
+                color += color_ray(&ray, &scene, 40, log);
             }
             color /= supersamples as f32;
             color.apply(|x| x.powf(1. / 2.2));
             fb.write(i, j, color);
         }
-
-        pb.inc(1);
     }
 
     image::save_buffer(

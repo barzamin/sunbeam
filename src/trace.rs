@@ -27,8 +27,8 @@ pub struct Hit {
 }
 
 impl Hit {
-    pub fn front_facing(&self, ray: &Ray) -> bool {
-        self.normal.dot(ray.dir) > 0.
+    pub fn front(&self, ray: &Ray) -> bool {
+        self.normal.dot(ray.dir) < 0.
     }
 }
 
